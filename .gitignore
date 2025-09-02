@@ -26,6 +26,7 @@ Thumbs.db
 # Model weights
 *.pt
 *.onnx
+*.json
 
 # Build / Dist
 build/
@@ -35,3 +36,5 @@ dist/
 # Cache
 *.cache/
 *.pytest_cache/
+
+sessions/
