@@ -6,13 +6,13 @@ import time
 import math
 from datetime import datetime
 from PyQt6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QLabel, QVBoxLayout, QHBoxLayout,
+    QApplication, QMainWindow, QWidget, QLabel, QVBoxLayout, QHBoxLayout, 
     QPushButton, QSpinBox, QSlider, QComboBox, QGroupBox, QFileDialog,
     QMessageBox, QStatusBar, QMenuBar, QMenu, QStyle, QSplashScreen,
     QProgressBar, QDialog
 )
-from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal, QRect
-from PyQt6.QtGui import QImage, QPixmap, QAction, QPainter, QFont, QBrush, QLinearGradient, QColor
+from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal, QRect, QPointF
+from PyQt6.QtGui import QImage, QPixmap, QAction, QPainter, QFont, QBrush, QLinearGradient, QConicalGradient, QColor
 
 # Global variables to store imported modules
 detector_module = None
@@ -453,6 +453,59 @@ class CameraInitWorker(QThread):
         except Exception as e:
             self.error_occurred.emit(f"Camera initialization failed: {str(e)}")
 
+class CameraPlaceholder(QWidget):
+    """Animated placeholder with smooth radar scanner effect"""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.angle = 0
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.update_animation)
+        self.timer.start(30)  # update every 30ms for ~33 FPS
+
+    def update_animation(self):
+        # rotate continuously
+        self.angle = (self.angle + 2) % 360
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        # Background
+        painter.fillRect(self.rect(), QColor(0, 0, 0))
+
+        # Radar sweep
+        center = self.rect().center()
+        radius = min(self.width(), self.height()) // 2 - 20
+
+        gradient = QConicalGradient(QPointF(center), -float(self.angle))
+        gradient.setColorAt(0.0, QColor(0, 255, 0, 180))
+        gradient.setColorAt(0.2, QColor(0, 255, 0, 50))
+        gradient.setColorAt(1.0, QColor(0, 255, 0, 0))
+
+        painter.setBrush(QBrush(gradient))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawEllipse(center, radius, radius)
+
+        # Radar grid circles
+        painter.setPen(QColor(0, 255, 0, 40))
+        for r in range(50, radius, 50):
+            painter.drawEllipse(center, r, r)
+
+        # ✅ Draw text last so it’s always visible
+        text = "Camera Feed Will Appear Here\nClick 'Start Counting'"
+
+        # Shadow for contrast
+        painter.setPen(QColor(0, 0, 0, 200))
+        painter.setFont(QFont("Arial", 16, QFont.Weight.Bold))
+        painter.drawText(self.rect().adjusted(2, 2, 2, 2), Qt.AlignmentFlag.AlignCenter, text)
+
+        # Main text
+        painter.setPen(QColor(255, 255, 255))
+        painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, text)
+
+
+
 class PeopleCounterApp(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -595,11 +648,10 @@ class PeopleCounterApp(QMainWindow):
         layout = QHBoxLayout(central)
 
         # --- Video feed panel ---
-        self.video_label = QLabel("Camera Feed Will Appear Here\nClick 'Start Counting'")
-        self.video_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.video_label.setStyleSheet("background-color: black; color: white; font-size: 14px;")
+        self.video_label = CameraPlaceholder()
         self.video_label.setMinimumSize(640, 480)
         layout.addWidget(self.video_label, 3)
+
 
         # --- Control panel ---
         controls = QVBoxLayout()
@@ -674,6 +726,20 @@ class PeopleCounterApp(QMainWindow):
         self.conf_slider.valueChanged.connect(self.update_confidence)
         vbox.addWidget(QLabel("Detection Confidence:"))
         vbox.addWidget(self.conf_slider)
+
+        # Auto-save interval
+        auto_save_layout = QHBoxLayout()
+        auto_save_layout.addWidget(QLabel("Auto-save every:"))
+        
+        self.auto_save_spin = QSpinBox()
+        self.auto_save_spin.setRange(10, 3600)  # 10 seconds to 1 hour
+        self.auto_save_spin.setValue(self.settings['save_interval'])
+        self.auto_save_spin.valueChanged.connect(self.update_auto_save_interval)
+        self.auto_save_spin.setSuffix(" seconds")
+        auto_save_layout.addWidget(self.auto_save_spin)
+        
+        auto_save_layout.addStretch()
+        vbox.addLayout(auto_save_layout)
 
         # Theme switcher
         self.theme_combo = QComboBox()
@@ -780,6 +846,12 @@ class PeopleCounterApp(QMainWindow):
             self.detector.confidence = self.settings['confidence']
         self.save_settings()
 
+    def update_auto_save_interval(self):
+        """Update the auto-save interval setting"""
+        self.settings['save_interval'] = self.auto_save_spin.value()
+        self.save_settings()
+        self.status.showMessage(f"Auto-save interval set to {self.settings['save_interval']} seconds")
+
     def change_theme(self, theme_name):
         if theme_name == "Dark":
             self.setStyleSheet(self.dark_theme)
@@ -835,6 +907,13 @@ class PeopleCounterApp(QMainWindow):
         self.counter = camera_package['counter']
         self.visualizer = camera_package['visualizer']
         
+        new_label = QLabel()
+        new_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        new_label.setStyleSheet("background-color: black;")
+        self.video_label.deleteLater()
+        self.video_label = new_label
+        self.centralWidget().layout().insertWidget(0, self.video_label, 3)
+
         # Start the session
         self.session_start_time = time.time()
         self.is_running = True
@@ -897,7 +976,14 @@ class PeopleCounterApp(QMainWindow):
         self.start_button.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay))
         self.start_button.setStyleSheet("background-color: #27ae60; color: white; font-weight: bold;")
         self.status.showMessage("Stopped")
-        self.video_label.setText("Camera Feed Stopped\nClick 'Start Counting'")
+        
+        # Recreate animated placeholder when stopping
+        new_placeholder = CameraPlaceholder()
+        new_placeholder.setMinimumSize(640, 480)
+        self.video_label.deleteLater()
+        self.video_label = new_placeholder
+        self.centralWidget().layout().insertWidget(0, self.video_label, 3)
+
 
     def update_frame(self):
         if not self.cap or not self.is_running:
@@ -932,6 +1018,14 @@ class PeopleCounterApp(QMainWindow):
             except Exception as e:
                 print(f"Error in AI pipeline: {e}")
                 # Continue with basic video display
+
+        # Auto-save functionality
+        current_time = time.time()
+        if (self.settings['auto_save'] and 
+            self.session_start_time and 
+            current_time - self.last_save >= self.settings['save_interval']):
+            self.auto_save_data()
+            self.last_save = current_time
 
         # Convert frame to Qt format and display
         try:
@@ -988,6 +1082,39 @@ class PeopleCounterApp(QMainWindow):
             
             QMessageBox.information(self, "Reset", "All counts have been reset.")
 
+    def auto_save_data(self):
+        """Automatically save session data at regular intervals"""
+        if not self.session_start_time:
+            return
+            
+        try:
+            # Create auto-save directory if it doesn't exist
+            os.makedirs("auto_saves", exist_ok=True)
+            
+            # Generate filename with timestamp
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"auto_saves/session_{timestamp}.json"
+            
+            data = {
+                'timestamp': datetime.now().isoformat(),
+                'session_data': {
+                    'count_in': self.count_in,
+                    'count_out': self.count_out,
+                    'current_inside': self.current_inside,
+                    'session_duration': int(time.time() - self.session_start_time)
+                },
+                'settings': self.settings
+            }
+            
+            with open(filename, "w") as f:
+                json.dump(data, f, indent=4)
+                
+            # Show brief notification in status bar
+            self.status.showMessage(f"Auto-saved to {filename}", 3000)  # Show for 3 seconds
+            
+        except Exception as e:
+            print(f"Auto-save error: {e}")
+
     def export_data(self):
         filename, _ = QFileDialog.getSaveFileName(
             self, "Export Data", "", "JSON Files (*.json);;Text Files (*.txt)"
@@ -1001,9 +1128,14 @@ class PeopleCounterApp(QMainWindow):
                 'count_in': self.count_in,
                 'count_out': self.count_out,
                 'current_inside': self.current_inside,
-                'session_duration': self.lbl_session.text().replace("Session Time: ", "")
+                'session_duration': int(time.time() - self.session_start_time) if self.session_start_time else 0
             },
-            'settings': self.settings
+            'settings': self.settings,
+            'auto_save_info': {
+                'enabled': self.settings['auto_save'],
+                'interval': self.settings['save_interval'],
+                'last_save': datetime.fromtimestamp(self.last_save).isoformat() if hasattr(self, 'last_save') else None
+            }
         }
 
         try:
@@ -1017,7 +1149,10 @@ class PeopleCounterApp(QMainWindow):
                     f.write(f"People Entered: {data['session_data']['count_in']}\n")
                     f.write(f"People Exited: {data['session_data']['count_out']}\n")
                     f.write(f"Currently Inside: {data['session_data']['current_inside']}\n")
-                    f.write(f"Session Duration: {data['session_data']['session_duration']}\n")
+                    f.write(f"Session Duration: {data['session_data']['session_duration']} seconds\n")
+                    f.write(f"Auto-save: {'Enabled' if data['auto_save_info']['enabled'] else 'Disabled'}\n")
+                    if data['auto_save_info']['enabled']:
+                        f.write(f"Auto-save Interval: {data['auto_save_info']['interval']} seconds\n")
                     f.write("\n--- Settings ---\n")
                     for k, v in data['settings'].items():
                         f.write(f"{k}: {v}\n")
@@ -1092,12 +1227,12 @@ def main():
     QApplication.processEvents()
     time.sleep(0.3)
     
-    splash.update_progress(15, "Loading AI modules")
+    splash.update_progress(15, "Loading modules")
     QApplication.processEvents()
     
     load_modules()
     
-    splash.update_progress(50, "Setting up user interface")
+    splash.update_progress(60, "Setting up user interface")
     QApplication.processEvents()
     time.sleep(0.4)
     

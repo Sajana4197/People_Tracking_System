@@ -24,7 +24,6 @@ env/
 Thumbs.db
 
 # Model weights
-*.pt
 *.onnx
 *.json
 
