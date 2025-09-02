@@ -20,58 +20,61 @@ tracker_module = None
 counter_module = None
 visualizer_module = None
 
-def load_modules():
-    """Load AI modules with error handling"""
-    global detector_module, tracker_module, counter_module, visualizer_module
+class ModuleLoaderThread(QThread):
+    """Thread for loading AI modules in the background"""
+    progress_updated = pyqtSignal(int, str)
+    modules_loaded = pyqtSignal()
     
-    print("Loading modules...")
+    def __init__(self):
+        super().__init__()
+        self.modules_to_load = [
+            ("Detector", "detector"),
+            ("Tracker", "tracker"), 
+            ("Counter", "counter"),
+            ("Visualizer", "visualizer")
+        ]
     
-    try:
-        import detector
-        detector_module = detector
-        print("✓ Detector module loaded")
-    except ImportError as e:
-        print(f"✗ Detector module not found: {e}")
-    except Exception as e:
-        print(f"✗ Error loading detector: {e}")
-    
-    try:
-        import tracker
-        tracker_module = tracker
-        print("✓ Tracker module loaded")
-    except ImportError as e:
-        print(f"✗ Tracker module not found: {e}")
-    except Exception as e:
-        print(f"✗ Error loading tracker: {e}")
-    
-    try:
-        import counter
-        counter_module = counter
-        print("✓ Counter module loaded")
-    except ImportError as e:
-        print(f"✗ Counter module not found: {e}")
-    except Exception as e:
-        print(f"✗ Error loading counter: {e}")
-    
-    try:
-        import visualizer
-        visualizer_module = visualizer
-        print("✓ Visualizer module loaded")
-    except ImportError as e:
-        print(f"✗ Visualizer module not found: {e}")
-    except Exception as e:
-        print(f"✗ Error loading visualizer: {e}")
+    def run(self):
+        global detector_module, tracker_module, counter_module, visualizer_module
+        
+        for i, (name, module_name) in enumerate(self.modules_to_load):
+            self.progress_updated.emit(25 * (i + 1), f"Loading {name} module")
+            
+            try:
+                module = __import__(module_name)
+                
+                # Assign to the appropriate global variable
+                if module_name == "detector":
+                    detector_module = module
+                elif module_name == "tracker":
+                    tracker_module = module
+                elif module_name == "counter":
+                    counter_module = module
+                elif module_name == "visualizer":
+                    visualizer_module = module
+                    
+                print(f"✓ {name} module loaded")
+                
+            except ImportError as e:
+                print(f"✗ {name} module not found: {e}")
+            except Exception as e:
+                print(f"✗ Error loading {name}: {e}")
+            
+            # Small delay to show progress
+            time.sleep(0.1)
+        
+        self.modules_loaded.emit()
 
 class EnhancedSplashScreen(QSplashScreen):
     """Enhanced attractive splash screen"""
     def __init__(self):
         # Smaller, wide splash (500x200)
         pixmap = QPixmap(500, 200)
-
         super().__init__(pixmap)
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint)
 
         self.background = QPixmap("human-eye.jpg")
+        self.active = True  # Track if the splash screen is active
 
         # Progress tracking
         self.progress = 0
@@ -84,6 +87,8 @@ class EnhancedSplashScreen(QSplashScreen):
         self.animation_step = 0
 
     def update_progress(self, progress, message=""):
+        if not self.active:
+            return
         self.progress = progress
         if message:
             self.message = message
@@ -91,108 +96,132 @@ class EnhancedSplashScreen(QSplashScreen):
         QApplication.processEvents()
 
     def update_animation(self):
+        if not self.active:
+            return
         self.animation_step += 1
         self.repaint()
 
     def paintEvent(self, event):
+        if not self.active:
+            return
+            
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        if not painter.isActive():
+            # Try to begin painting
+            if not painter.begin(self):
+                return
+        
+        try:
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        # ✅ Draw background image
-        if hasattr(self, "background") and not self.background.isNull():
-            painter.drawPixmap(self.rect(), self.background)
-        else:
-            # fallback gradient if no image
-            gradient = QLinearGradient(0, 0, 0, self.height())
-            gradient.setColorAt(0, QColor(52, 73, 94))
-            gradient.setColorAt(1, QColor(36, 52, 66))
-            painter.fillRect(self.rect(), QBrush(gradient))
+            # ✅ Draw background image
+            if hasattr(self, "background") and not self.background.isNull():
+                painter.drawPixmap(self.rect(), self.background)
+            else:
+                # fallback gradient if no image
+                gradient = QLinearGradient(0, 0, 0, self.height())
+                gradient.setColorAt(0, QColor(52, 73, 94))
+                gradient.setColorAt(1, QColor(36, 52, 66))
+                painter.fillRect(self.rect(), QBrush(gradient))
 
-        # ✅ Dark overlay for better contrast
-        overlay = QColor(0, 0, 0, 120)  # black with 120 alpha
-        painter.fillRect(self.rect(), overlay)
+            # ✅ Dark overlay for better contrast
+            overlay = QColor(0, 0, 0, 120)  # black with 120 alpha
+            painter.fillRect(self.rect(), overlay)
 
-        # Title
-        title_rect = QRect(0, 30, self.width(), 40)
-        title_text = "People Counter & Tracker"
+            # Title
+            title_rect = QRect(0, 30, self.width(), 40)
+            title_text = "People Counter & Tracker"
 
-        # Shadow for title
-        painter.setPen(QColor(0, 0, 0, 200))
-        painter.setFont(QFont("Arial", 18, QFont.Weight.Bold))
-        painter.drawText(title_rect.adjusted(2, 2, 2, 2),
-                        Qt.AlignmentFlag.AlignCenter, title_text)
+            # Shadow for title
+            painter.setPen(QColor(0, 0, 0, 200))
+            painter.setFont(QFont("Arial", 18, QFont.Weight.Bold))
+            painter.drawText(title_rect.adjusted(2, 2, 2, 2),
+                            Qt.AlignmentFlag.AlignCenter, title_text)
 
-        # Main title
-        painter.setPen(QColor(255, 255, 255))
-        painter.drawText(title_rect, Qt.AlignmentFlag.AlignCenter, title_text)
+            # Main title
+            painter.setPen(QColor(255, 255, 255))
+            painter.drawText(title_rect, Qt.AlignmentFlag.AlignCenter, title_text)
 
-        # Subtitle
-        subtitle_rect = QRect(0, 65, self.width(), 20)
-        subtitle_text = "Real-Time Detection"
+            # Subtitle
+            subtitle_rect = QRect(0, 65, self.width(), 20)
+            subtitle_text = "Real-Time Detection"
 
-        # Shadow for subtitle
-        painter.setPen(QColor(0, 0, 0, 180))
-        painter.setFont(QFont("Arial", 10, QFont.Weight.Bold))
-        painter.drawText(subtitle_rect.adjusted(1, 1, 1, 1),
-                        Qt.AlignmentFlag.AlignCenter, subtitle_text)
+            # Shadow for subtitle
+            painter.setPen(QColor(0, 0, 0, 180))
+            painter.setFont(QFont("Arial", 10, QFont.Weight.Bold))
+            painter.drawText(subtitle_rect.adjusted(1, 1, 1, 1),
+                            Qt.AlignmentFlag.AlignCenter, subtitle_text)
 
-        # Main subtitle
-        painter.setPen(QColor(225, 225, 225))
-        painter.drawText(subtitle_rect, Qt.AlignmentFlag.AlignCenter, subtitle_text)
+            # Main subtitle
+            painter.setPen(QColor(225, 225, 225))
+            painter.drawText(subtitle_rect, Qt.AlignmentFlag.AlignCenter, subtitle_text)
 
-        # Animated loading text
-        dots = "." * ((self.animation_step // 8) % 4)
-        loading_text = f"{self.message}{dots}"
-        painter.setFont(QFont("Arial", 9))
+            # Animated loading text
+            dots = "." * ((self.animation_step // 8) % 4)
+            loading_text = f"{self.message}{dots}"
+            painter.setFont(QFont("Arial", 9))
 
-        # Shadow for loading text
-        painter.setPen(QColor(0, 0, 0, 200))
-        painter.drawText(32, self.height() - 58, loading_text)
+            # Shadow for loading text
+            painter.setPen(QColor(0, 0, 0, 200))
+            painter.drawText(32, self.height() - 58, loading_text)
 
-        # Main loading text
-        painter.setPen(QColor(255, 255, 255))
-        painter.drawText(30, self.height() - 60, loading_text)
+            # Main loading text
+            painter.setPen(QColor(255, 255, 255))
+            painter.drawText(30, self.height() - 60, loading_text)
 
-        # Progress bar
-        bar_width = self.width() - 60
-        bar_height = 12
-        bar_x = 30
-        bar_y = self.height() - 35
+            # Progress bar
+            bar_width = self.width() - 60
+            bar_height = 12
+            bar_x = 30
+            bar_y = self.height() - 35
 
-        bg_rect = QRect(bar_x, bar_y, bar_width, bar_height)
-        painter.setBrush(QBrush(QColor(34, 49, 63, 200)))  # semi-transparent bg
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.drawRoundedRect(bg_rect, 6, 6)
-
-        # Border
-        painter.setPen(QColor(52, 152, 219, 150))
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.drawRoundedRect(bg_rect, 6, 6)
-
-        # Progress fill
-        if self.progress > 0:
-            fill_width = int(bar_width * self.progress / 100)
-            fill_rect = QRect(bar_x, bar_y, fill_width, bar_height)
-
-            progress_gradient = QLinearGradient(bar_x, bar_y, bar_x, bar_y + bar_height)
-            progress_gradient.setColorAt(0, QColor(52, 152, 219))
-            progress_gradient.setColorAt(1, QColor(41, 128, 185))
-
-            painter.setBrush(QBrush(progress_gradient))
+            bg_rect = QRect(bar_x, bar_y, bar_width, bar_height)
+            painter.setBrush(QBrush(QColor(34, 49, 63, 200)))  # semi-transparent bg
             painter.setPen(Qt.PenStyle.NoPen)
-            painter.drawRoundedRect(fill_rect, 6, 6)
+            painter.drawRoundedRect(bg_rect, 6, 6)
 
-        # Percentage text with shadow
-        percent_text = f"{self.progress}%"
-        painter.setFont(QFont("Arial", 9, QFont.Weight.Bold))
+            # Border
+            painter.setPen(QColor(52, 152, 219, 150))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRoundedRect(bg_rect, 6, 6)
 
-        painter.setPen(QColor(0, 0, 0, 200))
-        painter.drawText(bg_rect.adjusted(1, 1, 1, 1),
-                        Qt.AlignmentFlag.AlignCenter, percent_text)
+            # Progress fill
+            if self.progress > 0:
+                fill_width = int(bar_width * self.progress / 100)
+                fill_rect = QRect(bar_x, bar_y, fill_width, bar_height)
 
-        painter.setPen(QColor(255, 255, 255))
-        painter.drawText(bg_rect, Qt.AlignmentFlag.AlignCenter, percent_text)
+                progress_gradient = QLinearGradient(bar_x, bar_y, bar_x, bar_y + bar_height)
+                progress_gradient.setColorAt(0, QColor(52, 152, 219))
+                progress_gradient.setColorAt(1, QColor(41, 128, 185))
 
+                painter.setBrush(QBrush(progress_gradient))
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.drawRoundedRect(fill_rect, 6, 6)
+
+            # Percentage text with shadow
+            percent_text = f"{self.progress}%"
+            painter.setFont(QFont("Arial", 9, QFont.Weight.Bold))
+
+            painter.setPen(QColor(0, 0, 0, 200))
+            painter.drawText(bg_rect.adjusted(1, 1, 1, 1),
+                            Qt.AlignmentFlag.AlignCenter, percent_text)
+
+            painter.setPen(QColor(255, 255, 255))
+            painter.drawText(bg_rect, Qt.AlignmentFlag.AlignCenter, percent_text)
+        finally:
+            painter.end()
+
+    def closeEvent(self, event):
+        """Stop the animation timer when closing"""
+        self.active = False
+        self.timer.stop()
+        super().closeEvent(event)
+
+    def safe_close(self):
+        """Safely close the splash screen"""
+        self.active = False
+        self.timer.stop()
+        self.close()
 
 
 class CameraLoadingDialog(QDialog):
@@ -390,15 +419,26 @@ class CameraInitWorker(QThread):
 
     def run(self):
         global detector_module, tracker_module, counter_module, visualizer_module
+        
         try:
-            # Open camera
+            # Step 1: Open camera
+            self.progress_updated.emit(10, "Opening camera...")
             cap = cv2.VideoCapture(self.camera_index)
             
-            if not cap.isOpened():
-                self.error_occurred.emit("Could not open camera")
-                return
+            # Add timeout for camera opening
+            start_time = time.time()
+            while not cap.isOpened() and time.time() - start_time < 5:  # 5 second timeout
+                time.sleep(0.1)
                 
-            # Configure camera
+            if not cap.isOpened():
+                # Try fallback camera index
+                cap = cv2.VideoCapture(0)  # Try default camera
+                if not cap.isOpened():
+                    self.error_occurred.emit("Could not open any camera")
+                    return
+            
+            # Step 2: Configure camera
+            self.progress_updated.emit(30, "Configuring camera...")
             cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
             cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
             
@@ -408,20 +448,26 @@ class CameraInitWorker(QThread):
             counter = None
             visualizer = None
             
+            # Step 3: Initialize detector
             if detector_module:
                 try:
+                    self.progress_updated.emit(50, "Initializing detector...")
                     detector = detector_module.PersonDetector(confidence=self.settings['confidence'])
                 except Exception as e:
                     print(f"Error creating detector: {e}")
             
+            # Step 4: Initialize tracker
             if tracker_module:
                 try:
+                    self.progress_updated.emit(65, "Initializing tracker...")
                     tracker = tracker_module.MultiObjectTracker()
                 except Exception as e:
                     print(f"Error creating tracker: {e}")
             
+            # Step 5: Initialize counter
             if counter_module:
                 try:
+                    self.progress_updated.emit(80, "Initializing counter...")
                     counter = counter_module.PeopleCounter(
                         line_position=self.settings['line_position'],
                         direction=self.settings['direction'],
@@ -430,14 +476,19 @@ class CameraInitWorker(QThread):
                 except Exception as e:
                     print(f"Error creating counter: {e}")
             
+            # Step 6: Initialize visualizer
             if visualizer_module:
                 try:
+                    self.progress_updated.emit(90, "Initializing visualizer...")
                     visualizer = visualizer_module.Visualizer(
                         line_position=self.settings['line_position'],
                         direction=self.settings['direction']
                     )
                 except Exception as e:
                     print(f"Error creating visualizer: {e}")
+            
+            # Step 7: Finalize
+            self.progress_updated.emit(95, "Finalizing...")
             
             # Package everything
             camera_package = {
@@ -469,41 +520,52 @@ class CameraPlaceholder(QWidget):
 
     def paintEvent(self, event):
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        if not painter.isActive():
+            if not painter.begin(self):
+                return
+        
+        try:
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        # Background
-        painter.fillRect(self.rect(), QColor(0, 0, 0))
+            # Background
+            painter.fillRect(self.rect(), QColor(0, 0, 0))
 
-        # Radar sweep
-        center = self.rect().center()
-        radius = min(self.width(), self.height()) // 2 - 20
+            # Radar sweep
+            center = self.rect().center()
+            radius = min(self.width(), self.height()) // 2 - 20
 
-        gradient = QConicalGradient(QPointF(center), -float(self.angle))
-        gradient.setColorAt(0.0, QColor(0, 255, 0, 180))
-        gradient.setColorAt(0.2, QColor(0, 255, 0, 50))
-        gradient.setColorAt(1.0, QColor(0, 255, 0, 0))
+            gradient = QConicalGradient(QPointF(center), -float(self.angle))
+            gradient.setColorAt(0.0, QColor(0, 255, 0, 180))
+            gradient.setColorAt(0.2, QColor(0, 255, 0, 50))
+            gradient.setColorAt(1.0, QColor(0, 255, 0, 0))
 
-        painter.setBrush(QBrush(gradient))
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.drawEllipse(center, radius, radius)
+            painter.setBrush(QBrush(gradient))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawEllipse(center, radius, radius)
 
-        # Radar grid circles
-        painter.setPen(QColor(0, 255, 0, 40))
-        for r in range(50, radius, 50):
-            painter.drawEllipse(center, r, r)
+            # Radar grid circles
+            painter.setPen(QColor(0, 255, 0, 40))
+            for r in range(50, radius, 50):
+                painter.drawEllipse(center, r, r)
 
-        # ✅ Draw text last so it’s always visible
-        text = "Camera Feed Will Appear Here\nClick 'Start Counting'"
+            # ✅ Draw text last so it's always visible
+            text = "Camera Feed Will Appear Here\nClick 'Start Counting'"
 
-        # Shadow for contrast
-        painter.setPen(QColor(0, 0, 0, 200))
-        painter.setFont(QFont("Arial", 16, QFont.Weight.Bold))
-        painter.drawText(self.rect().adjusted(2, 2, 2, 2), Qt.AlignmentFlag.AlignCenter, text)
+            # Shadow for contrast
+            painter.setPen(QColor(0, 0, 0, 200))
+            painter.setFont(QFont("Arial", 16, QFont.Weight.Bold))
+            painter.drawText(self.rect().adjusted(2, 2, 2, 2), Qt.AlignmentFlag.AlignCenter, text)
 
-        # Main text
-        painter.setPen(QColor(255, 255, 255))
-        painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, text)
+            # Main text
+            painter.setPen(QColor(255, 255, 255))
+            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, text)
+        finally:
+            painter.end()
 
+    def closeEvent(self, event):
+        """Stop the animation timer when closing"""
+        self.timer.stop()
+        super().closeEvent(event)
 
 
 class PeopleCounterApp(QMainWindow):
@@ -1227,19 +1289,24 @@ def main():
     QApplication.processEvents()
     time.sleep(0.3)
     
-    splash.update_progress(15, "Loading modules")
+    # Start module loading in background thread
+    splash.update_progress(15, "Loading modules in background")
     QApplication.processEvents()
     
-    load_modules()
+    # Create and start module loader thread
+    module_loader = ModuleLoaderThread()
+    module_loader.progress_updated.connect(splash.update_progress)
+    module_loader.modules_loaded.connect(lambda: splash.update_progress(70, "Modules loaded"))
+    module_loader.start()
     
-    splash.update_progress(60, "Setting up user interface")
+    # Wait for module loading to complete
+    while module_loader.isRunning():
+        QApplication.processEvents()
+        time.sleep(0.1)
+    
+    splash.update_progress(75, "Setting up user interface")
     QApplication.processEvents()
     time.sleep(0.4)
-    
-    # Create main window
-    splash.update_progress(75, "Configuring components")
-    QApplication.processEvents()
-    time.sleep(0.3)
     
     try:
         main_window = PeopleCounterApp()
@@ -1248,14 +1315,23 @@ def main():
         QApplication.processEvents()
         time.sleep(0.5)
         
-        # Show main window and close splash
+        # Show main window and safely close splash
         main_window.show()
-        splash.finish(main_window)
+        
+        # Disconnect all signals and safely close the splash
+        try:
+            module_loader.progress_updated.disconnect()
+        except:
+            pass
+            
+        splash.safe_close()
+        splash = None
         
         print("Application started successfully!")
         
     except Exception as e:
-        splash.close()
+        if splash:
+            splash.safe_close()
         print(f"Error starting application: {e}")
         QMessageBox.critical(None, "Startup Error", 
                            f"Failed to start application:\n{str(e)}\n\nCheck console for details.")
