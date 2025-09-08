@@ -1,3 +1,15 @@
+import cv2
+import os
+import sys
+
+def resource_path(relative_path):
+    """Get absolute path to resource, works for dev and for PyInstaller"""
+    if getattr(sys, 'frozen', False):
+        base_path = sys._MEIPASS
+    else:
+        base_path = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base_path, relative_path)
+
 try:
     from deep_sort_realtime.deepsort_tracker import DeepSort
     DEEPSORT_AVAILABLE = True
@@ -5,8 +17,6 @@ except ImportError:
     print("Warning: deep_sort_realtime not available. Install with: pip install deep-sort-realtime")
     DEEPSORT_AVAILABLE = False
     
-import cv2
-
 class MultiObjectTracker:
     def __init__(self, max_age=30, n_init=3):
         if DEEPSORT_AVAILABLE:
@@ -27,32 +37,44 @@ class MultiObjectTracker:
             return self._update_simple(frame, detections)
 
     def _update_deepsort(self, frame, detections):
-        """Update using DeepSORT"""
+        """Update using DeepSORT but keep YOLO boxes for display"""
         try:
+            # Pass detections to DeepSORT
             tracks = self.tracker.update_tracks(detections, frame=frame)
             tracked_objects = []
-            
+
             for track in tracks:
                 if not track.is_confirmed():
                     continue
 
-                # Get tight bounding box from DeepSORT
-                l, t, r, b = track.to_ltrb()
-                
-                # Ensure valid coordinates
-                l, t, r, b = max(0, int(l)), max(0, int(t)), int(r), int(b)
-                
-                if r > l and b > t:  # Valid box
+                track_id = track.track_id
+
+                # ✅ Find matching YOLO detection for this track
+                matched_det = None
+                for det in detections:
+                    bbox, conf, cls = det
+                    # DeepSORT stores the last detection it matched with
+                    if hasattr(track, "det_conf") and abs(conf - track.det_conf) < 1e-3:
+                        matched_det = bbox
+                        break
+
+                # If no exact match, just use the detector's first bbox
+                if matched_det is None and detections:
+                    matched_det = detections[0][0]
+
+                if matched_det:
+                    x1, y1, x2, y2 = matched_det
                     tracked_objects.append({
-                        "id": track.track_id,
-                        "bbox": (l, t, r, b)
+                        "id": track_id,
+                        "bbox": (int(x1), int(y1), int(x2), int(y2))
                     })
-                    
+
             return tracked_objects
-            
+
         except Exception as e:
             print(f"Error in DeepSORT tracking: {e}")
             return []
+
 
     def _update_simple(self, frame, detections):
         """Simple tracking fallback using overlap-based matching"""

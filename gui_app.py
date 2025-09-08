@@ -4,6 +4,8 @@ import json
 import os
 import time
 import math
+import multiprocessing
+from PyQt6.QtGui import QIcon
 from datetime import datetime
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QLabel, QVBoxLayout, QHBoxLayout, 
@@ -12,13 +14,34 @@ from PyQt6.QtWidgets import (
     QProgressBar, QDialog
 )
 from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal, QRect, QPointF
-from PyQt6.QtGui import QImage, QPixmap, QAction, QPainter, QFont, QBrush, QLinearGradient, QConicalGradient, QColor
+from PyQt6.QtGui import QImage, QPixmap, QAction, QPainter, QFont, QBrush, QLinearGradient, QConicalGradient, QColor,QIcon
+
+# Fix for PyInstaller on Windows
+if __name__ == '__main__':
+    multiprocessing.freeze_support()
 
 # Global variables to store imported modules
 detector_module = None
 tracker_module = None
 counter_module = None
 visualizer_module = None
+
+def resource_path(relative_path):
+    """Get absolute path to resource, works for dev and for PyInstaller"""
+    try:
+        if getattr(sys, 'frozen', False):
+            # Running as compiled executable
+            base_path = sys._MEIPASS
+        else:
+            # Running as script
+            base_path = os.path.dirname(os.path.abspath(__file__))
+        full_path = os.path.join(base_path, relative_path)
+        if not os.path.exists(full_path):
+            print(f"Warning: Resource file not found: {full_path}")
+        return full_path
+    except Exception as e:
+        print(f"Error getting resource path: {e}")
+        return relative_path  # Fallback to relative path
 
 class ModuleLoaderThread(QThread):
     """Thread for loading AI modules in the background"""
@@ -73,8 +96,15 @@ class EnhancedSplashScreen(QSplashScreen):
         super().__init__(pixmap)
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint)
 
-        self.background = QPixmap("human-eye.jpg")
-        self.active = True  # Track if the splash screen is active
+        # Load background image using resource_path
+        image_path = resource_path("human-eye.jpg")
+        if os.path.exists(image_path):
+            self.background = QPixmap(image_path)
+            self.active = True  # Track if the splash screen is active
+        else:
+            # Fallback if image not found
+            self.background = QPixmap()
+            print(f"Warning: Background image not found at {image_path}")
 
         # Progress tracking
         self.progress = 0
@@ -502,28 +532,52 @@ class CameraInitWorker(QThread):
             self.camera_ready.emit(camera_package)
             
         except Exception as e:
-            self.error_occurred.emit(f"Camera initialization failed: {str(e)}")
+            import traceback
+            error_details = traceback.format_exc()
+            self.error_occurred.emit(f"Camera initialization failed: {str(e)}\n\nDetails:\n{error_details}")
 
-class CameraPlaceholder(QWidget):
-    """Animated placeholder with smooth radar scanner effect"""
+class CameraPlaceholder(QLabel):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.angle = 0
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_animation)
-        self.timer.start(30)  # update every 30ms for ~33 FPS
+        self.timer.start(30)
+        self.active = True
+        self.placeholder_mode = True  # ✅ new flag
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+    def start_animation(self):
+        """Enable radar animation (placeholder mode)"""
+        self.placeholder_mode = True
+        self.active = True
+        self.timer.start(30)
+        self.update()
+
+    def stop_animation(self):
+        """Stop radar and switch to video mode"""
+        self.active = False
+        self.placeholder_mode = False
+        self.timer.stop()
+        self.update()
 
     def update_animation(self):
-        # rotate continuously
+        """Radar sweep rotation"""
+        if not self.active:
+            return
         self.angle = (self.angle + 2) % 360
         self.update()
 
     def paintEvent(self, event):
+        if not self.placeholder_mode:
+            # ✅ Normal QLabel behavior (shows pixmap if set)
+            return super().paintEvent(event)
+
+        # --- Radar drawing as before ---
         painter = QPainter(self)
         if not painter.isActive():
             if not painter.begin(self):
                 return
-        
         try:
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
@@ -548,30 +602,23 @@ class CameraPlaceholder(QWidget):
             for r in range(50, radius, 50):
                 painter.drawEllipse(center, r, r)
 
-            # ✅ Draw text last so it's always visible
+            # Text
             text = "Camera Feed Will Appear Here\nClick 'Start Counting'"
-
-            # Shadow for contrast
-            painter.setPen(QColor(0, 0, 0, 200))
-            painter.setFont(QFont("Arial", 16, QFont.Weight.Bold))
-            painter.drawText(self.rect().adjusted(2, 2, 2, 2), Qt.AlignmentFlag.AlignCenter, text)
-
-            # Main text
             painter.setPen(QColor(255, 255, 255))
+            painter.setFont(QFont("Arial", 16, QFont.Weight.Bold))
             painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, text)
         finally:
             painter.end()
-
-    def closeEvent(self, event):
-        """Stop the animation timer when closing"""
-        self.timer.stop()
-        super().closeEvent(event)
-
 
 class PeopleCounterApp(QMainWindow):
     def __init__(self):
         super().__init__()
         print("Initializing PeopleCounterApp...")
+
+        # Set window icon
+        icon_path = resource_path("app.ico")
+        if os.path.exists(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
 
         self.setWindowTitle("Real-Time People Counter & Tracker")
         self.resize(1200, 800)
@@ -602,8 +649,11 @@ class PeopleCounterApp(QMainWindow):
 
         # Themes
         self.dark_theme = """
-            QMainWindow { background-color: #2c3e50; }
-            QLabel { color: white; font-size: 13px; }
+            QMainWindow { 
+                background-color: #2c3e50; 
+                color: #ecf0f1;
+            }
+            QLabel { color: #ecf0f1; font-size: 13px; }
             QGroupBox {
                 border: 2px solid #34495e;
                 border-radius: 8px;
@@ -615,6 +665,7 @@ class PeopleCounterApp(QMainWindow):
                 subcontrol-origin: margin;
                 left: 10px;
                 padding: 0 5px;
+                color: #ecf0f1;
             }
             QPushButton {
                 background-color: #3498db;
@@ -631,21 +682,51 @@ class PeopleCounterApp(QMainWindow):
                 border-radius: 4px;
                 padding: 4px;
             }
-
             QSpinBox {
                 background-color: #34495e;
                 color: white;
                 border: 1px solid #2c3e50;
                 border-radius: 4px;
-                padding-right: 15px; /* make space for the buttons */
+                padding-right: 15px;
             }
-
-            QStatusBar { background-color: #34495e; color: white; }
+            QStatusBar {
+                background-color: #34495e; 
+                color: #ecf0f1;
+                border-top: 1px solid #2c3e50;
+            }
+            QMenuBar {
+                background-color: #2c3e50;
+                color: #ecf0f1;
+                border-bottom: 1px solid #34495e;
+            }
+            QMenuBar::item {
+                background-color: #2c3e50;
+                color: #ecf0f1;
+            }
+            QMenuBar::item:selected {
+                background-color: #34495e;
+            }
+            QMenu {
+                background-color: #2c3e50;
+                color: #ecf0f1;
+                border: 1px solid #34495e;
+            }
+            QMenu::item:selected {
+                background-color: #3498db;
+            }
+            QMessageBox {
+                background-color: #2c3e50;
+                color: #ecf0f1;
+            }
+            
         """
 
         self.light_theme = """
-            QMainWindow { background-color: #ecf0f1; }
-            QLabel { color: black; font-size: 13px; }
+            QMainWindow { 
+                background-color: #ecf0f1; 
+                color: #2c3e50;
+            }
+            QLabel { color: #2c3e50; font-size: 13px; }
             QGroupBox {
                 border: 2px solid #bdc3c7;
                 border-radius: 8px;
@@ -657,6 +738,7 @@ class PeopleCounterApp(QMainWindow):
                 subcontrol-origin: margin;
                 left: 10px;
                 padding: 0 5px;
+                color: #2c3e50;
             }
             QPushButton {
                 background-color: #3498db;
@@ -669,20 +751,43 @@ class PeopleCounterApp(QMainWindow):
             QPushButton:pressed { background-color: #1f618d; }
             QComboBox, QSlider {
                 background-color: #ffffff;
-                color: black;
+                color: #2c3e50;
                 border-radius: 4px;
                 padding: 4px;
             }
-
             QSpinBox {
-                background-color: #34495e;
-                color: white;
-                border: 1px solid #2c3e50;
+                background-color: #ffffff;
+                color: #2c3e50;
+                border: 1px solid #bdc3c7;
                 border-radius: 4px;
-                padding-right: 15px; /* make space for the buttons */
+                padding-right: 15px;
             }
-
-            QStatusBar { background-color: #bdc3c7; color: black; }
+            QStatusBar {
+                background-color: #bdc3c7; 
+                color: #2c3e50;
+                border-top: 1px solid #95a5a6;
+            }
+            QMenuBar {
+                background-color: #ecf0f1;
+                color: #2c3e50;
+                border-bottom: 1px solid #bdc3c7;
+            }
+            QMenuBar::item {
+                background-color: #ecf0f1;
+                color: #2c3e50;
+            }
+            QMenuBar::item:selected {
+                background-color: #dfe6e9;
+            }
+            QMenu {
+                background-color: #ecf0f1;
+                color: #2c3e50;
+                border: 1px solid #bdc3c7;
+            }
+            QMenu::item:selected {
+                background-color: #3498db;
+                color: white;
+            }
         """
 
         # Initialize UI
@@ -698,7 +803,48 @@ class PeopleCounterApp(QMainWindow):
         # Apply saved theme
         self.change_theme(self.settings.get("theme", "Dark"))
         
+        # Set dark title bar for Windows
+        if sys.platform == "win32":
+            self.set_dark_title_bar()
+
         print("PeopleCounterApp initialized successfully!")
+
+    def set_dark_title_bar(self):
+        """Simple method to set dark title bar on Windows"""
+        try:
+            import ctypes
+            # Get the window handle properly
+            if hasattr(self, 'winId'):
+                hwnd = int(self.winId())
+            else:
+                # Alternative method for getting window handle
+                hwnd = ctypes.windll.user32.GetParent(int(self.winId()))
+            
+            # Set window attribute for dark mode (Windows 10/11)
+            DWMWA_USE_IMMERSIVE_DARK_MODE = 20
+            value = ctypes.c_int(2)  # Enable dark mode
+            
+            # Try different approaches to set the dark mode
+            result = ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                hwnd, 
+                DWMWA_USE_IMMERSIVE_DARK_MODE, 
+                ctypes.byref(value), 
+                ctypes.sizeof(value)
+            )
+            
+            if result != 0:
+                # Try alternative value for older Windows versions
+                DWMWA_USE_IMMERSIVE_DARK_MODE_OLD = 19
+                ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                    hwnd, 
+                    DWMWA_USE_IMMERSIVE_DARK_MODE_OLD, 
+                    ctypes.byref(value), 
+                    ctypes.sizeof(value)
+                )
+                
+        except Exception as e:
+            # If it fails, just continue with the default title bar
+            print(f"Note: Could not set dark title bar: {e}")
 
     def init_ui(self):
         """Initialize the user interface"""
@@ -918,10 +1064,12 @@ class PeopleCounterApp(QMainWindow):
         if theme_name == "Dark":
             self.setStyleSheet(self.dark_theme)
             self.settings["theme"] = "Dark"
+            # Reapply dark title bar on theme change
+            if sys.platform == "win32":
+                self.set_dark_title_bar()
         else:
             self.setStyleSheet(self.light_theme)
             self.settings["theme"] = "Light"
-        self.save_settings()
 
     # ---------------- Camera and Counting Logic ----------------
     def toggle_counting(self):
@@ -933,7 +1081,11 @@ class PeopleCounterApp(QMainWindow):
     def start_counting(self):
         """Start counting with enhanced camera loading dialog"""
         print("Starting counting...")
-    
+        
+        # Check if already running
+        if self.is_running:
+            return
+        
         # Show attractive camera loading dialog
         self.camera_loading_dialog = CameraLoadingDialog(self, self.settings)
         self.camera_loading_dialog.show()
@@ -952,40 +1104,39 @@ class PeopleCounterApp(QMainWindow):
     def on_camera_ready(self, camera_package):
         """Called when camera and AI components are ready"""
         print("Camera ready!")
-        
+
         # Close loading dialog with a slight delay for smooth UX
         if self.camera_loading_dialog:
-            # Show completion message briefly
             self.camera_loading_dialog.update_progress(100, "Launching camera feed...")
             QApplication.processEvents()
             time.sleep(0.3)
             self.camera_loading_dialog.close()
             self.camera_loading_dialog = None
-        
+
         # Set up components
         self.cap = camera_package['cap']
         self.detector = camera_package['detector']
         self.tracker = camera_package['tracker']
         self.counter = camera_package['counter']
         self.visualizer = camera_package['visualizer']
-        
-        new_label = QLabel()
-        new_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        new_label.setStyleSheet("background-color: black;")
-        self.video_label.deleteLater()
-        self.video_label = new_label
-        self.centralWidget().layout().insertWidget(0, self.video_label, 3)
+
+        # ✅ Stop animation and reuse the same video_label instead of replacing it
+        if hasattr(self.video_label, 'stop_animation'):
+            self.video_label.stop_animation()  # ✅ switches to video mode
+        self.video_label.clear()
+        self.video_label.setStyleSheet("background-color: black;")
+        self.video_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         # Start the session
         self.session_start_time = time.time()
         self.is_running = True
-        
+
         # Update UI
         self.start_button.setText(" Stop Counting")
         self.start_button.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaStop))
         self.start_button.setStyleSheet("background-color: #e74c3c; color: white; font-weight: bold;")
         self.start_button.setEnabled(True)
-        
+
         # Check if AI modules are available
         ai_available = all([self.detector, self.tracker, self.counter, self.visualizer])
         if ai_available:
@@ -997,9 +1148,10 @@ class PeopleCounterApp(QMainWindow):
             if not self.counter: missing.append("counter")
             if not self.visualizer: missing.append("visualizer")
             self.status.showMessage(f"🟡 Counting active - Missing: {', '.join(missing)}")
-        
+
         # Start video timer
         self.timer.start(30)  # 30ms = ~33 FPS
+
 
     def on_camera_error(self, error_message):
         """Called when camera initialization fails"""
@@ -1025,27 +1177,24 @@ class PeopleCounterApp(QMainWindow):
 
     def stop_counting(self):
         print("Stopping counting...")
-        
+
         self.is_running = False
         self.timer.stop()
-        
+
         if self.cap:
             self.cap.release()
             self.cap = None
-        
+
         # Reset UI
         self.start_button.setText(" Start Counting")
         self.start_button.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay))
         self.start_button.setStyleSheet("background-color: #27ae60; color: white; font-weight: bold;")
         self.status.showMessage("Stopped")
-        
-        # Recreate animated placeholder when stopping
-        new_placeholder = CameraPlaceholder()
-        new_placeholder.setMinimumSize(640, 480)
-        self.video_label.deleteLater()
-        self.video_label = new_placeholder
-        self.centralWidget().layout().insertWidget(0, self.video_label, 3)
 
+        # ✅ Switch back to radar placeholder mode
+        if hasattr(self.video_label, 'start_animation'):
+            self.video_label.clear()
+            self.video_label.start_animation()
 
     def update_frame(self):
         if not self.cap or not self.is_running:
@@ -1243,23 +1392,35 @@ class PeopleCounterApp(QMainWindow):
 
     # ---------------- About & Closing ----------------
     def show_about(self):
-        QMessageBox.information(self, "About", """
-Real-Time People Counter & Tracker
-Version 2.0 Simplified
+        about_text = """
+        <h2>Real-Time People Counter & Tracker</h2>
+        <p><b>Version:</b> 2.0</p>
+        <p><b>Developed for:</b> Computer Vision & Image Processing Project</p>
 
-Features:
-• Real-time person detection with AI (if modules available)
-• Multi-object tracking
-• Configurable counting parameters
-• Data export functionality
-• Dark/Light theme support
-• Robust error handling
-
-This version will work even if AI modules are missing.
-Basic camera functionality is always available.
-
-Created for professional people counting applications.
-""")
+        <h3>Features:</h3>
+        <ul>
+        <li>Real-time person detection</li>
+        <li>Multi-persons tracking</li>
+        <li>Configurable counting parameters</li>
+        <li>Capacity monitoring with alerts</li>
+        <li>Data export functionality</li>
+        </ul>
+        
+        <h3>Developed by:</h3>
+        <ul>
+        <li>D.V.W.De Alwis       - EG/2020/3877</li>
+        <li>H.A.S.I.B.Senanayake - EG/2020/4197</li>
+        <li>T.M.D.C.B.Tennakoon  - EG/2020/4226</li>
+        <li>P.G.M.P.H.Wijesinghe - EG/2020/4299</li>
+        </ul>
+        """
+        
+        msg = QMessageBox()
+        msg.setWindowTitle("About People Counter & Tracker")
+        msg.setTextFormat(Qt.TextFormat.RichText)
+        msg.setText(about_text)
+        msg.setStandardButtons(QMessageBox.StandardButton.Ok)
+        msg.exec()
 
     def closeEvent(self, event):
         print("Closing application...")
@@ -1275,15 +1436,23 @@ def main():
     
     app = QApplication(sys.argv)
     
+    # Set application icon
+    icon_path = resource_path("app.ico")
+    if os.path.exists(icon_path):
+        app.setWindowIcon(QIcon(icon_path))
+
     # Set application properties
     app.setApplicationName("People Counter & Tracker")
     app.setApplicationVersion("2.0")
-    app.setOrganizationName("AI Vision Solutions")
+    app.setOrganizationName("Computer Vision & Image Processing")
     
     # Create and show enhanced splash screen
     splash = EnhancedSplashScreen()
     splash.show()
     
+    # Process events to make sure splash screen is displayed
+    app.processEvents()
+
     # Load modules with attractive progress updates
     splash.update_progress(5, "Initializing application")
     QApplication.processEvents()
