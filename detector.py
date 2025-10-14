@@ -22,7 +22,6 @@ class PersonDetector:
             # Use resource_path for model file
             actual_model_path = resource_path(model_path)
             
-            # Add the safe global for PyTorch 2.6+ compatibility
             try:
                 from ultralytics.nn.tasks import DetectionModel
                 torch.serialization.add_safe_globals([DetectionModel])

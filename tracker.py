@@ -49,7 +49,7 @@ class MultiObjectTracker:
 
                 track_id = track.track_id
 
-                # ✅ Find matching YOLO detection for this track
+                # Find matching YOLO detection for this track
                 matched_det = None
                 for det in detections:
                     bbox, conf, cls = det

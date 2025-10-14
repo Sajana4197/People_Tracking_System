@@ -42,7 +42,7 @@ class PeopleCounter:
                 self.count_out += 1  # Crossing from below to above = exiting
                 print(f"Person {track_id} exited (below->above)")
                 
-        else:  # Vertical line crossing
+        else:  
             # Vertical line crossing (people move left/right)
             current_state = "left" if cx < self.line_position else "right"
             

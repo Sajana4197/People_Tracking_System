@@ -144,7 +144,7 @@ class EnhancedSplashScreen(QSplashScreen):
         try:
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-            # ✅ Draw background image
+            # Draw background image
             if hasattr(self, "background") and not self.background.isNull():
                 painter.drawPixmap(self.rect(), self.background)
             else:
@@ -154,7 +154,7 @@ class EnhancedSplashScreen(QSplashScreen):
                 gradient.setColorAt(1, QColor(36, 52, 66))
                 painter.fillRect(self.rect(), QBrush(gradient))
 
-            # ✅ Dark overlay for better contrast
+            # Dark overlay for better contrast
             overlay = QColor(0, 0, 0, 120)  # black with 120 alpha
             painter.fillRect(self.rect(), overlay)
 
@@ -544,7 +544,7 @@ class CameraPlaceholder(QLabel):
         self.timer.timeout.connect(self.update_animation)
         self.timer.start(30)
         self.active = True
-        self.placeholder_mode = True  # ✅ new flag
+        self.placeholder_mode = True  # new flag
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
     def start_animation(self):
@@ -570,7 +570,7 @@ class CameraPlaceholder(QLabel):
 
     def paintEvent(self, event):
         if not self.placeholder_mode:
-            # ✅ Normal QLabel behavior (shows pixmap if set)
+            # Normal QLabel behavior (shows pixmap if set)
             return super().paintEvent(event)
 
         # --- Radar drawing as before ---
@@ -1120,9 +1120,9 @@ class PeopleCounterApp(QMainWindow):
         self.counter = camera_package['counter']
         self.visualizer = camera_package['visualizer']
 
-        # ✅ Stop animation and reuse the same video_label instead of replacing it
+        # Stop animation and reuse the same video_label instead of replacing it
         if hasattr(self.video_label, 'stop_animation'):
-            self.video_label.stop_animation()  # ✅ switches to video mode
+            self.video_label.stop_animation()  # switches to video mode
         self.video_label.clear()
         self.video_label.setStyleSheet("background-color: black;")
         self.video_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -1191,7 +1191,7 @@ class PeopleCounterApp(QMainWindow):
         self.start_button.setStyleSheet("background-color: #27ae60; color: white; font-weight: bold;")
         self.status.showMessage("Stopped")
 
-        # ✅ Switch back to radar placeholder mode
+        # Switch back to radar placeholder mode
         if hasattr(self.video_label, 'start_animation'):
             self.video_label.clear()
             self.video_label.start_animation()
