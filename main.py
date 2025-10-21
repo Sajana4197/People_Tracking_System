@@ -7,7 +7,7 @@ from visualizer import Visualizer
 
 def main():
     # Initialize video capture
-    cap = cv2.VideoCapture(0)  # webcam
+    cap = cv2.VideoCapture(1)  # id 1 for logitechwebcam
     
     if not cap.isOpened():
         print("Error: Could not open webcam")

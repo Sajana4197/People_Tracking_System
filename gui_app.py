@@ -634,7 +634,7 @@ class PeopleCounterApp(QMainWindow):
 
         # Settings (default)
         self.settings = {
-            'camera_index': 0,
+            'camera_index': 1,
             'max_capacity': 10,
             'line_position': 240,
             'direction': 'horizontal',
