@@ -49,11 +49,11 @@ class Visualizer:
             cv2.line(frame, (line_x, 0), (line_x, h), (0, 0, 255), 3)
             
             # Add arrows to show direction
-            cv2.arrowedLine(frame, (line_x - 20, 50), (line_x - 5, 50), (0, 255, 255), 2)
-            cv2.putText(frame, "IN", (line_x - 45, 55), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
+            cv2.arrowedLine(frame, (line_x - 20, 110), (line_x - 5, 110), (0, 255, 255), 2)
+            cv2.putText(frame, "IN", (line_x - 45, 115), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
             
-            cv2.arrowedLine(frame, (line_x + 20, 100), (line_x + 5, 100), (255, 0, 255), 2)
-            cv2.putText(frame, "OUT", (line_x + 25, 105), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 255), 2)
+            cv2.arrowedLine(frame, (line_x + 20, 130), (line_x + 5, 130), (255, 0, 255), 2)
+            cv2.putText(frame, "OUT", (line_x + 25, 135), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 255), 2)
 
         # Draw statistics with background
         stats_bg_color = (0, 0, 0)  # Black background

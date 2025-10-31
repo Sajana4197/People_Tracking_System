@@ -31,7 +31,7 @@ def resource_path(relative_path):
     try:
         if getattr(sys, 'frozen', False):
             # Running as compiled executable
-            base_path = sys._MEIPASS
+            base_path = sys._MEIPASS    
         else:
             # Running as script
             base_path = os.path.dirname(os.path.abspath(__file__))
